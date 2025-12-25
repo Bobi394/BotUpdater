@@ -16,7 +16,7 @@ LOCAL_VERSION = "2.2"
 URL = "https://ff130j.mimo.run"
 ELEMENT_ID = "JumpBot_1.0"
 
-# ===== UPDATER =====
+# ===== UPDATE =====
 VERSION_URL = "https://raw.githubusercontent.com/Bobi394/BotUpdater/main/version.txt"
 BOT_URL = "https://raw.githubusercontent.com/Bobi394/BotUpdater/main/Bot.py"
 
@@ -29,10 +29,10 @@ CONFIG_PATH = os.path.join(DOWNLOADS, "config.txt")
 
 # ===== STATUS =====
 running = False
-web_allows = None
+web_allows = False
 controller = keyboard.Controller()
 
-# ===== HILFSFUNKTIONEN =====
+# ===== LOG =====
 def log(text):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {text}"
@@ -40,12 +40,13 @@ def log(text):
     with open(LOG_PATH, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
+# ===== VERSION VERGLEICH =====
 def parse_version(v):
     return [int(x) for x in v.strip().split(".")]
 
 # ===== CONFIG LADEN =====
 def load_config():
-    config = {
+    cfg = {
         "min_delay": 60,
         "max_delay": 180,
         "update_check_seconds": 10,
@@ -57,34 +58,46 @@ def load_config():
             for line in f:
                 if "=" in line:
                     k, v = line.strip().split("=", 1)
-                    config[k] = int(v) if v.isdigit() else v
-
-    return config
+                    cfg[k] = int(v) if v.isdigit() else v
+    return cfg
 
 config = load_config()
+
+# ===== CONFIG LIVE WATCH (KEIN SPAM) =====
+def watch_config():
+    global config
+    last_config = config.copy()
+
+    while True:
+        new_config = load_config()
+        if new_config != last_config:
+            config = new_config
+            log("Config geändert & neu geladen ⚙️")
+            last_config = new_config.copy()
+        time.sleep(1)
 
 # ===== WEBSITE CHECK =====
 def check_website():
     global web_allows, running
-    last_status = None
+    last = None
 
     while True:
         try:
             r = requests.get(URL, timeout=5)
             soup = BeautifulSoup(r.text, "html.parser")
-            element = soup.find(id=ELEMENT_ID)
-            current_status = element and element.text.strip().lower() == "true"
+            el = soup.find(id=ELEMENT_ID)
+            status = el and el.text.strip().lower() == "true"
         except:
-            current_status = False
+            status = False
 
-        if current_status != last_status:
-            last_status = current_status
-            web_allows = current_status
-            log(f"Webstatus: {'TRUE' if web_allows else 'FALSE'}")
+        if status != last:
+            last = status
+            web_allows = status
+            log(f"Webstatus: {'TRUE ✅' if status else 'FALSE ❌'}")
 
             if running and not web_allows:
                 running = False
-                log("Bot automatisch gestoppt")
+                log("Bot automatisch gestoppt 🛑")
 
         time.sleep(1)
 
@@ -92,25 +105,24 @@ def check_website():
 def auto_update_loop():
     while True:
         try:
-            online_version = requests.get(VERSION_URL, timeout=5).text.strip()
-
-            if parse_version(online_version) > parse_version(LOCAL_VERSION):
-                log(f"Update gefunden: {LOCAL_VERSION} → {online_version}")
+            online = requests.get(VERSION_URL, timeout=5).text.strip()
+            if parse_version(online) > parse_version(LOCAL_VERSION):
+                log(f"Update gefunden {LOCAL_VERSION} → {online}")
 
                 if os.path.exists(BOT_PATH):
                     shutil.copy(BOT_PATH, BACKUP_PATH)
-                    log("Backup erstellt")
+                    log("Backup erstellt 📦")
 
                 code = requests.get(BOT_URL, timeout=5).text
                 with open(BOT_PATH, "w", encoding="utf-8") as f:
                     f.write(code)
 
-                log("Neue Version geladen – starte neu 🔄")
+                log("Update geladen – Neustart 🔄")
                 os.startfile(BOT_PATH)
                 sys.exit()
 
         except Exception as e:
-            log(f"Update-Fehler: {e}")
+            log(f"Update Fehler: {e}")
 
         time.sleep(config["update_check_seconds"])
 
@@ -120,11 +132,11 @@ def jump_loop():
     while running:
         delay = random.randint(config["min_delay"], config["max_delay"])
         end = time.time() + delay
-        log(f"Nächster Sprung in {delay}s")
+        log(f"Nächster Sprung in {delay}s ⏱️")
 
         while running and time.time() < end:
             rest = int(end - time.time())
-            print(f"\r⏱️ Nächster Sprung in {rest:3d}s", end="")
+            print(f"\r🦎 Sprung in {rest:3d}s", end="")
             time.sleep(0.5)
 
         print(" " * 40, end="\r")
@@ -133,7 +145,7 @@ def jump_loop():
             controller.press(keyboard.Key.space)
             time.sleep(0.1)
             controller.release(keyboard.Key.space)
-            log("Gesprungen 🦎")
+            log("Gesprungen 🦎✨")
 
 # ===== KEY CONTROL =====
 def on_press(key):
@@ -143,22 +155,23 @@ def on_press(key):
             if web_allows:
                 running = not running
                 if running:
-                    log("Bot AKTIV ➕")
+                    log("Bot AKTIV ➕🦎")
                     threading.Thread(target=jump_loop, daemon=True).start()
                 else:
-                    log("Bot AUS ➖")
+                    log("Bot AUS ➖🛑")
             else:
-                log("Aktivierung blockiert (Webstatus FALSE)")
+                log("Start blockiert – Webstatus FALSE ❌")
     except:
         pass
 
 # ===== START =====
 log(f"Bot gestartet | Version {LOCAL_VERSION}")
-log("Config geladen")
+log("Config geladen ⚙️")
 
 threading.Thread(target=check_website, daemon=True).start()
 threading.Thread(target=auto_update_loop, daemon=True).start()
+threading.Thread(target=watch_config, daemon=True).start()
 
-log("Drücke Taste zum An/Aus schalten")
+log("Drücke Taste zum Starten/Stoppen 🦎")
 with keyboard.Listener(on_press=on_press) as listener:
     listener.join()
