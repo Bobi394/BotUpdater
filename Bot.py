@@ -8,9 +8,11 @@ import os
 import shutil
 import sys
 from datetime import datetime
+import ctypes
+import subprocess
 
 # ===== VERSION =====
-LOCAL_VERSION = "2.2"
+LOCAL_VERSION = "2.4"
 
 # ===== WEB =====
 URL = "https://ff130j.mimo.run"
@@ -44,7 +46,7 @@ def log(text):
 def parse_version(v):
     return [int(x) for x in v.strip().split(".")]
 
-# ===== CONFIG LADEN =====
+# ===== CONFIG =====
 def load_config():
     cfg = {
         "min_delay": 60,
@@ -52,7 +54,6 @@ def load_config():
         "update_check_seconds": 10,
         "toggle_key": "+"
     }
-
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             for line in f:
@@ -63,41 +64,64 @@ def load_config():
 
 config = load_config()
 
-# ===== CONFIG LIVE WATCH (KEIN SPAM) =====
+# ===== CONFIG WATCH =====
 def watch_config():
     global config
-    last_config = config.copy()
-
+    last = config.copy()
     while True:
-        new_config = load_config()
-        if new_config != last_config:
-            config = new_config
-            log("Config geändert & neu geladen ⚙️")
-            last_config = new_config.copy()
+        new = load_config()
+        if new != last:
+            config = new
+            log("Config neu geladen ⚙️")
+            last = new.copy()
         time.sleep(1)
 
-# ===== WEBSITE CHECK =====
+# ===== KONSOLE POSITION & GRÖSSE =====
+def get_console_rect():
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    rect = ctypes.wintypes.RECT()
+    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+
+def start_new_console_same_place():
+    x, y, w, h = get_console_rect()
+    cmd = f'mode con: cols=120 lines=30 & python "{BOT_PATH}"'
+    subprocess.Popen(
+        ["cmd", "/c", cmd],
+        creationflags=subprocess.CREATE_NEW_CONSOLE
+    )
+
+# ===== WEBSITE CHECK (STABILER) =====
 def check_website():
     global web_allows, running
     last = None
 
     while True:
-        try:
-            r = requests.get(URL, timeout=5)
-            soup = BeautifulSoup(r.text, "html.parser")
-            el = soup.find(id=ELEMENT_ID)
-            status = el and el.text.strip().lower() == "true"
-        except:
-            status = False
+        ok = False
+        for _ in range(3):  # 3 Versuche → stabiler
+            try:
+                r = requests.get(URL, timeout=5)
+                soup = BeautifulSoup(r.text, "html.parser")
+                el = soup.find(id=ELEMENT_ID)
+                if el and el.text.strip().lower() == "true":
+                    ok = True
+                break
+            except:
+                time.sleep(0.3)
 
-        if status != last:
-            last = status
-            web_allows = status
-            log(f"Webstatus: {'TRUE ✅' if status else 'FALSE ❌'}")
+        if ok != last:
+            last = ok
+            web_allows = ok
+            log(f"Webstatus: {'TRUE ✅' if ok else 'FALSE ❌'}")
 
             if running and not web_allows:
                 running = False
                 log("Bot automatisch gestoppt 🛑")
+
+            if not running and web_allows:
+                running = True
+                log("Bot automatisch gestartet 🟢")
+                threading.Thread(target=jump_loop, daemon=True).start()
 
         time.sleep(1)
 
@@ -118,7 +142,7 @@ def auto_update_loop():
                     f.write(code)
 
                 log("Update geladen – Neustart 🔄")
-                os.startfile(BOT_PATH)
+                start_new_console_same_place()
                 sys.exit()
 
         except Exception as e:
@@ -126,7 +150,7 @@ def auto_update_loop():
 
         time.sleep(config["update_check_seconds"])
 
-# ===== JUMP LOOP MIT COUNTDOWN =====
+# ===== JUMP LOOP =====
 def jump_loop():
     global running
     while running:
@@ -147,31 +171,23 @@ def jump_loop():
             controller.release(keyboard.Key.space)
             log("Gesprungen 🦎✨")
 
-# ===== KEY CONTROL =====
+# ===== KEY =====
 def on_press(key):
     global running
     try:
         if key.char == config["toggle_key"]:
-            if web_allows:
-                running = not running
-                if running:
-                    log("Bot AKTIV ➕🦎")
-                    threading.Thread(target=jump_loop, daemon=True).start()
-                else:
-                    log("Bot AUS ➖🛑")
-            else:
-                log("Start blockiert – Webstatus FALSE ❌")
+            running = not running
+            log(f"Bot {'AKTIV 🟢' if running else 'AUS 🔴'}")
+            if running:
+                threading.Thread(target=jump_loop, daemon=True).start()
     except:
         pass
 
 # ===== START =====
 log(f"Bot gestartet | Version {LOCAL_VERSION}")
-log("Config geladen ⚙️")
-
 threading.Thread(target=check_website, daemon=True).start()
 threading.Thread(target=auto_update_loop, daemon=True).start()
 threading.Thread(target=watch_config, daemon=True).start()
 
-log("Drücke Taste zum Starten/Stoppen 🦎")
 with keyboard.Listener(on_press=on_press) as listener:
     listener.join()
