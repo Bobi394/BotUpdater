@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 # ===== VERSION =====
-LOCAL_VERSION = "2.5"
+LOCAL_VERSION = "2.6"
 
 # ===== WEB =====
 URL = "https://ff130j.mimo.run"
@@ -32,7 +32,7 @@ running = False
 web_allows = False
 controller = keyboard.Controller()
 start_time = time.time()
-last_online_version = LOCAL_VERSION
+last_seen_version = LOCAL_VERSION
 
 # ===== LOG =====
 def log(text):
@@ -65,7 +65,7 @@ def load_config():
 
 config = load_config()
 
-# ===== CONFIG WATCH =====
+# ===== CONFIG WATCH (KEIN SPAM) =====
 def watch_config():
     global config
     last = config.copy()
@@ -73,7 +73,7 @@ def watch_config():
         new = load_config()
         if new != last:
             config = new
-            log("Config geändert ⚙️")
+            log("Config neu geladen ⚙️")
             last = new.copy()
         time.sleep(1)
 
@@ -108,27 +108,31 @@ def check_website():
 
         time.sleep(1)
 
-# ===== AUTO UPDATE (JEDE SEKUNDE, KEIN SPAM) =====
+# ===== AUTO UPDATE (GLEICHE KONSOLE) =====
 def auto_update_loop():
-    global last_online_version
+    global last_seen_version
     while True:
         try:
             online = requests.get(VERSION_URL, timeout=5).text.strip()
 
-            if online != last_online_version:
-                last_online_version = online
+            if online != last_seen_version:
+                last_seen_version = online
 
                 if parse_version(online) > parse_version(LOCAL_VERSION):
-                    log(f"Update {LOCAL_VERSION} → {online}")
+                    log(f"Update gefunden {LOCAL_VERSION} → {online}")
 
                     if os.path.exists(BOT_PATH):
                         shutil.copy(BOT_PATH, BACKUP_PATH)
+                        log("Backup erstellt 📦")
 
                     code = requests.get(BOT_URL, timeout=5).text
                     with open(BOT_PATH, "w", encoding="utf-8") as f:
                         f.write(code)
 
-                    log("Update geladen – Neustart in gleicher Konsole 🔄")
+                    log("Update fertig – ersetze laufenden Bot 🔄")
+                    time.sleep(1)
+
+                    # 🔥 DAS ist der wichtige Teil:
                     os.execv(sys.executable, [sys.executable, BOT_PATH])
         except:
             pass
@@ -163,12 +167,12 @@ def show_status():
     m = (uptime % 3600) // 60
     s = uptime % 60
 
-    print("\n========== STATUS ==========")
+    print("\n====== STATUS ======")
     print(f"Version: {LOCAL_VERSION}")
     print(f"Webstatus: {'TRUE' if web_allows else 'FALSE'}")
     print(f"Bot: {'AKTIV' if running else 'AUS'}")
     print(f"Laufzeit: {h:02d}:{m:02d}:{s:02d}")
-    print("============================\n")
+    print("====================\n")
 
 # ===== KEY CONTROL =====
 def on_press(key):
