@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 # ===== VERSION =====
-LOCAL_VERSION = "2.6"
+LOCAL_VERSION = "2.7"
 
 # ===== WEB =====
 URL = "https://ff130j.mimo.run"
@@ -48,24 +48,30 @@ def parse_version(v):
 
 # ===== CONFIG =====
 def load_config():
-    cfg = {
-        "min_delay": 60,
-        "max_delay": 180,
-        "toggle_key": "+",
-        "status_key": "?",
-        "update_check_seconds": 1
-    }
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            for line in f:
-                if "=" in line:
-                    k, v = line.strip().split("=", 1)
-                    cfg[k] = int(v) if v.isdigit() else v
+    # Wenn Config fehlt, erstelle Standard-Config
+    if not os.path.exists(CONFIG_PATH):
+        default_config = [
+            "min_delay=60",
+            "max_delay=180",
+            "toggle_key=+",
+            "status_key=?",
+            "update_check_seconds=1"
+        ]
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            f.write("\n".join(default_config))
+        log("Keine Config gefunden – Standard-Config erstellt ⚙️")
+
+    cfg = {}
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            if "=" in line:
+                k, v = line.strip().split("=", 1)
+                cfg[k] = int(v) if v.isdigit() else v
     return cfg
 
 config = load_config()
 
-# ===== CONFIG WATCH (KEIN SPAM) =====
+# ===== CONFIG WATCH =====
 def watch_config():
     global config
     last = config.copy()
@@ -108,35 +114,27 @@ def check_website():
 
         time.sleep(1)
 
-# ===== AUTO UPDATE (GLEICHE KONSOLE) =====
+# ===== AUTO UPDATE =====
 def auto_update_loop():
     global last_seen_version
     while True:
         try:
             online = requests.get(VERSION_URL, timeout=5).text.strip()
-
             if online != last_seen_version:
                 last_seen_version = online
-
                 if parse_version(online) > parse_version(LOCAL_VERSION):
                     log(f"Update gefunden {LOCAL_VERSION} → {online}")
-
                     if os.path.exists(BOT_PATH):
                         shutil.copy(BOT_PATH, BACKUP_PATH)
                         log("Backup erstellt 📦")
-
                     code = requests.get(BOT_URL, timeout=5).text
                     with open(BOT_PATH, "w", encoding="utf-8") as f:
                         f.write(code)
-
-                    log("Update fertig – ersetze laufenden Bot 🔄")
+                    log("Update fertig – Bot ersetzt sich selbst 🔄")
                     time.sleep(1)
-
-                    # 🔥 DAS ist der wichtige Teil:
                     os.execv(sys.executable, [sys.executable, BOT_PATH])
         except:
             pass
-
         time.sleep(config["update_check_seconds"])
 
 # ===== JUMP LOOP =====
