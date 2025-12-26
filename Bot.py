@@ -8,11 +8,9 @@ import os
 import shutil
 import sys
 from datetime import datetime
-import ctypes
-import subprocess
 
 # ===== VERSION =====
-LOCAL_VERSION = "2.4"
+LOCAL_VERSION = "2.5"
 
 # ===== WEB =====
 URL = "https://ff130j.mimo.run"
@@ -33,6 +31,8 @@ CONFIG_PATH = os.path.join(DOWNLOADS, "config.txt")
 running = False
 web_allows = False
 controller = keyboard.Controller()
+start_time = time.time()
+last_online_version = LOCAL_VERSION
 
 # ===== LOG =====
 def log(text):
@@ -51,8 +51,9 @@ def load_config():
     cfg = {
         "min_delay": 60,
         "max_delay": 180,
-        "update_check_seconds": 10,
-        "toggle_key": "+"
+        "toggle_key": "+",
+        "status_key": "?",
+        "update_check_seconds": 1
     }
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -72,81 +73,65 @@ def watch_config():
         new = load_config()
         if new != last:
             config = new
-            log("Config neu geladen ⚙️")
+            log("Config geändert ⚙️")
             last = new.copy()
         time.sleep(1)
 
-# ===== KONSOLE POSITION & GRÖSSE =====
-def get_console_rect():
-    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
-    rect = ctypes.wintypes.RECT()
-    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
-
-def start_new_console_same_place():
-    x, y, w, h = get_console_rect()
-    cmd = f'mode con: cols=120 lines=30 & python "{BOT_PATH}"'
-    subprocess.Popen(
-        ["cmd", "/c", cmd],
-        creationflags=subprocess.CREATE_NEW_CONSOLE
-    )
-
-# ===== WEBSITE CHECK (STABILER) =====
+# ===== WEBSITE CHECK =====
 def check_website():
     global web_allows, running
     last = None
 
     while True:
         ok = False
-        for _ in range(3):  # 3 Versuche → stabiler
-            try:
-                r = requests.get(URL, timeout=5)
-                soup = BeautifulSoup(r.text, "html.parser")
-                el = soup.find(id=ELEMENT_ID)
-                if el and el.text.strip().lower() == "true":
-                    ok = True
-                break
-            except:
-                time.sleep(0.3)
+        try:
+            r = requests.get(URL, timeout=5)
+            soup = BeautifulSoup(r.text, "html.parser")
+            el = soup.find(id=ELEMENT_ID)
+            ok = el and el.text.strip().lower() == "true"
+        except:
+            ok = False
 
         if ok != last:
             last = ok
             web_allows = ok
             log(f"Webstatus: {'TRUE ✅' if ok else 'FALSE ❌'}")
 
-            if running and not web_allows:
+            if running and not ok:
                 running = False
                 log("Bot automatisch gestoppt 🛑")
 
-            if not running and web_allows:
+            if not running and ok:
                 running = True
                 log("Bot automatisch gestartet 🟢")
                 threading.Thread(target=jump_loop, daemon=True).start()
 
         time.sleep(1)
 
-# ===== AUTO UPDATE =====
+# ===== AUTO UPDATE (JEDE SEKUNDE, KEIN SPAM) =====
 def auto_update_loop():
+    global last_online_version
     while True:
         try:
             online = requests.get(VERSION_URL, timeout=5).text.strip()
-            if parse_version(online) > parse_version(LOCAL_VERSION):
-                log(f"Update gefunden {LOCAL_VERSION} → {online}")
 
-                if os.path.exists(BOT_PATH):
-                    shutil.copy(BOT_PATH, BACKUP_PATH)
-                    log("Backup erstellt 📦")
+            if online != last_online_version:
+                last_online_version = online
 
-                code = requests.get(BOT_URL, timeout=5).text
-                with open(BOT_PATH, "w", encoding="utf-8") as f:
-                    f.write(code)
+                if parse_version(online) > parse_version(LOCAL_VERSION):
+                    log(f"Update {LOCAL_VERSION} → {online}")
 
-                log("Update geladen – Neustart 🔄")
-                start_new_console_same_place()
-                sys.exit()
+                    if os.path.exists(BOT_PATH):
+                        shutil.copy(BOT_PATH, BACKUP_PATH)
 
-        except Exception as e:
-            log(f"Update Fehler: {e}")
+                    code = requests.get(BOT_URL, timeout=5).text
+                    with open(BOT_PATH, "w", encoding="utf-8") as f:
+                        f.write(code)
+
+                    log("Update geladen – Neustart in gleicher Konsole 🔄")
+                    os.execv(sys.executable, [sys.executable, BOT_PATH])
+        except:
+            pass
 
         time.sleep(config["update_check_seconds"])
 
@@ -171,7 +156,21 @@ def jump_loop():
             controller.release(keyboard.Key.space)
             log("Gesprungen 🦎✨")
 
-# ===== KEY =====
+# ===== STATUS ANZEIGE =====
+def show_status():
+    uptime = int(time.time() - start_time)
+    h = uptime // 3600
+    m = (uptime % 3600) // 60
+    s = uptime % 60
+
+    print("\n========== STATUS ==========")
+    print(f"Version: {LOCAL_VERSION}")
+    print(f"Webstatus: {'TRUE' if web_allows else 'FALSE'}")
+    print(f"Bot: {'AKTIV' if running else 'AUS'}")
+    print(f"Laufzeit: {h:02d}:{m:02d}:{s:02d}")
+    print("============================\n")
+
+# ===== KEY CONTROL =====
 def on_press(key):
     global running
     try:
@@ -180,6 +179,9 @@ def on_press(key):
             log(f"Bot {'AKTIV 🟢' if running else 'AUS 🔴'}")
             if running:
                 threading.Thread(target=jump_loop, daemon=True).start()
+
+        if key.char == config["status_key"]:
+            show_status()
     except:
         pass
 
